@@ -1,0 +1,6 @@
+bmo/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
