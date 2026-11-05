@@ -29,6 +29,7 @@ def get_severity_label(score: int) -> str:
 
 def track_scan_history(target_url: str, current_overall: int, history_path: str = "reports/scan_history.json") -> str:
     os.makedirs(os.path.dirname(history_path) or "reports", exist_ok=True)
+    os.makedirs(os.path.dirname(history_path) or "reports", exist_ok=True)
     """Compare le score actuel avec le dernier audit enregistré sur la même cible."""
     history = {}
     if os.path.exists(history_path):
