@@ -22,6 +22,7 @@ from rich.prompt import Prompt
 from rich.progress import Progress, BarColumn, TextColumn, TaskProgressColumn
 
 from judge import (
+    select_best_model_for_pc,
     generate_audit_prompt,
     evaluate_regex,
     analyze_response,
@@ -174,7 +175,10 @@ async def execute_audit(target: str, api_type: str, target_model: str, api_key: 
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     results = []
 
-    engine_mode = f"Hybride + Ollama ({model})" if use_llm else "Hybride (Signatures Regex + Heuristique)"
+    if use_llm:
+        model, hw_msg = await select_best_model_for_pc(model)
+        console.print(f"[bold magenta][HARDWARE-AI][/bold magenta] {hw_msg}")
+    engine_mode = f"IA Intégrale + Hybride ({model})" if use_llm else "Hybride (Signatures Regex + Heuristique)"
     web_info = await auto_discover_web_ai(target, headers)
     param_key = web_info.get("param_key", "prompt")
     if web_info.get("is_web_discovered"):
@@ -406,8 +410,8 @@ def main(
     target_model: str = typer.Option("smollm2:135m", "--target-model", help="Nom du modèle sur l'API cible", rich_help_panel="1. Cible & Protocole"),
     api_key: str = typer.Option("SK-DEMO-9981", "--api-key", "-k", help="Jeton d'authentification Bearer", rich_help_panel="1. Cible & Protocole"),
     limit: int = typer.Option(10, "--limit", "-n", min=1, max=10, help="Nombre de modules OWASP à exécuter (1 à 10)", rich_help_panel="2. Moteur d'Audit & IA"),
-    use_llm: bool = typer.Option(False, "--use-llm", help="Activer le modèle local Ollama pour définir la cible et juger les réponses", rich_help_panel="2. Moteur d'Audit & IA"),
-    model: str = typer.Option("smollm2:135m", "--model", "-m", help="Nom du modèle Ollama local à utiliser avec --use-llm", rich_help_panel="2. Moteur d'Audit & IA"),
+    use_llm: bool = typer.Option(True, "--use-llm/--no-llm", help="Activer l'IA locale Ollama pour générer les prompts, définir la cible et juger (Actif par défaut)", rich_help_panel="2. Moteur d'Audit & IA"),
+    model: str = typer.Option("auto", "--model", "-m", help="Modèle Ollama : auto (sélection selon la RAM du PC) | smollm2:135m | qwen2.5:0.5b | llama3.2:1b", rich_help_panel="2. Moteur d'Audit & IA"),
     recon: bool = typer.Option(False, "--recon", help="Exécuter la reconnaissance réseau HTTP L7 (Auth, Headers, Rate-Limit)", rich_help_panel="2. Moteur d'Audit & IA"),
     benchmark: bool = typer.Option(False, "--benchmark", "-b", help="Exécuter le Valideur de Benchmark et les métriques de charge (Phase 4)", rich_help_panel="2. Moteur d'Audit & IA"),
     list_modules: bool = typer.Option(False, "--list-modules", "-l", help="Afficher la liste des 10 modules OWASP LLM et quitter", rich_help_panel="2. Moteur d'Audit & IA"),
