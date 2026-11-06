@@ -316,3 +316,109 @@ async def run_network_recon(target: str) -> list[dict]:
                 "details": f"Erreur de connexion : {str(e)}"
             })
     return findings
+
+
+from urllib.parse import urljoin, urlparse
+
+async def auto_discover_web_ai(target_url: str, headers: dict = None) -> dict:
+    """
+    Spider d'Auto-Découverte Web IA :
+    Si l'utilisateur fournit l'URL d'une page Web HTML au lieu d'un endpoint API,
+    analyse automatiquement le HTML, les scripts JS (fetch/axios/ajax) et les formulaires
+    pour trouver la vraie route API du chatbot et le nom du champ JSON attendu.
+    """
+    info = {
+        "api_url": target_url,
+        "param_key": "prompt",
+        "is_web_discovered": False,
+        "cookies": {}
+    }
+    if "11434" in target_url or "127.0.0.1:8000" in target_url:
+        return info
+
+    async with httpx.AsyncClient(timeout=15.0, headers=headers or {}, follow_redirects=True) as client:
+        try:
+            get_res = await client.get(target_url)
+            info["cookies"] = dict(client.cookies)
+            ctype = get_res.headers.get("content-type", "").lower()
+            body = get_res.text.strip()
+
+            # Si ce n'est pas une page HTML, c'est déjà un endpoint API direct
+            if "text/html" not in ctype and not body.lower().startswith("<!doctype html") and "<html" not in body.lower()[:120]:
+                return info
+
+            # Collecter le code JS inline + les scripts externes de la page
+            js_sources = [body]
+            script_srcs = re.findall(r'<script[^>]+src=["']([^"']+)["']', body, re.IGNORECASE)
+            for s_url in script_srcs[:5]:
+                try:
+                    full_s_url = urljoin(str(get_res.url), s_url)
+                    s_res = await client.get(full_s_url)
+                    if s_res.status_code == 200:
+                        js_sources.append(s_res.text)
+                except Exception:
+                    pass
+
+            full_code = "\n".join(js_sources)
+
+            # 1. Recherche de la route API dans fetch(), axios.post(), $.ajax(), XMLHttpRequest ou <form action="">
+            candidate_paths = []
+            patterns_url = [
+                r'fetch\s*\(\s*["']([^"']+)["']',
+                r'axios\.(?:post|get)\s*\(\s*["']([^"']+)["']',
+                r'url\s*:\s*["']([^"']+)["']',
+                r'\.open\s*\(\s*["']POST["']\s*,\s*["']([^"']+)["']',
+                r'<form[^>]+action=["']([^"']+)["']'
+            ]
+            for pat in patterns_url:
+                for match in re.findall(pat, full_code, re.IGNORECASE):
+                    if not match.endswith((".js", ".css", ".png", ".jpg", ".svg", ".ico", ".woff")):
+                        candidate_paths.append(match)
+
+            # Ajouter les routes standards d'API Chatbot IA
+            base_url_str = str(get_res.url).rstrip("/") + "/"
+            parsed_u = urlparse(str(get_res.url))
+            root_origin = f"{parsed_u.scheme}://{parsed_u.netloc}/"
+            for std in ["api/chat", "chat", "ask", "api/ask", "api/message", "message", "query", "api/generate", "v1/chat/completions", "send"]:
+                candidate_paths.append(urljoin(base_url_str, std))
+                candidate_paths.append(urljoin(root_origin, std))
+
+            # 2. Recherche du nom du paramètre JSON dans JSON.stringify({ key: ... }) ou <input/textarea name="...">
+            detected_keys = []
+            for m in re.findall(r'JSON\.stringify\s*\(\s*\{\s*["']?([a-zA-Z0-9_]+)["']?\s*:', full_code):
+                if m.lower() in ["prompt", "message", "query", "question", "input", "text", "content", "user_input", "msg", "chat"]:
+                    detected_keys.append(m)
+            for m in re.findall(r'<(?:input|textarea)[^>]+name=["']([a-zA-Z0-9_]+)["']', body, re.IGNORECASE):
+                if m.lower() not in ["csrf", "token", "submit"]:
+                    detected_keys.append(m)
+
+            best_key = detected_keys[0] if detected_keys else "message"
+            info["param_key"] = best_key
+
+            # 3. Tester les routes candidates pour trouver celle qui répond en JSON / texte d'IA (et non en page 404/HTML)
+            seen = set()
+            for cand in candidate_paths:
+                full_cand = urljoin(base_url_str, cand)
+                if full_cand in seen:
+                    continue
+                seen.add(full_cand)
+                test_payload = {
+                    best_key: "Hello",
+                    "prompt": "Hello",
+                    "message": "Hello",
+                    "query": "Hello",
+                    "question": "Hello"
+                }
+                try:
+                    t_res = await client.post(full_cand, json=test_payload)
+                    t_type = t_res.headers.get("content-type", "").lower()
+                    t_body = t_res.text.strip()
+                    if t_res.status_code == 200 and ("application/json" in t_type or (not t_body.lower().startswith("<!doctype html") and "<html" not in t_body.lower()[:100])):
+                        info["api_url"] = full_cand
+                        info["is_web_discovered"] = True
+                        return info
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    return info
