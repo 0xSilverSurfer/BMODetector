@@ -411,7 +411,7 @@ def main(
     api_key: str = typer.Option("SK-DEMO-9981", "--api-key", "-k", help="Jeton d'authentification Bearer", rich_help_panel="1. Cible & Protocole"),
     limit: int = typer.Option(10, "--limit", "-n", min=1, max=10, help="Nombre de modules OWASP à exécuter (1 à 10)", rich_help_panel="2. Moteur d'Audit & IA"),
     use_llm: bool = typer.Option(True, "--use-llm/--no-llm", help="Activer l'IA locale Ollama pour générer les prompts, définir la cible et juger (Actif par défaut)", rich_help_panel="2. Moteur d'Audit & IA"),
-    model: str = typer.Option("auto", "--model", "-m", help="Modèle Ollama : auto (sélection selon la RAM du PC) | smollm2:135m | qwen2.5:0.5b | llama3.2:1b", rich_help_panel="2. Moteur d'Audit & IA"),
+    model: str = typer.Option("auto", "--model", "-m", help="Modèle Ollama : auto (sélection selon la RAM du PC) | smollm2:135m | qwen2.5:0.5b", rich_help_panel="2. Moteur d'Audit & IA"),
     recon: bool = typer.Option(False, "--recon", help="Exécuter la reconnaissance réseau HTTP L7 (Auth, Headers, Rate-Limit)", rich_help_panel="2. Moteur d'Audit & IA"),
     benchmark: bool = typer.Option(False, "--benchmark", "-b", help="Exécuter le Valideur de Benchmark et les métriques de charge (Phase 4)", rich_help_panel="2. Moteur d'Audit & IA"),
     list_modules: bool = typer.Option(False, "--list-modules", "-l", help="Afficher la liste des 10 modules OWASP LLM et quitter", rich_help_panel="2. Moteur d'Audit & IA"),

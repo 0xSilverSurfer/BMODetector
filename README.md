@@ -9,11 +9,10 @@
 **BMODetector v2.0** est un scanner de vulnérabilités offensif et d'analyse d'écart (*Gap Analysis*) en ligne de commande (CLI) piloté par une **IA locale intégrée (Ollama)**. Il audite de manière automatisée la résistance des API REST, des sites Web d'IA et des architectures RAG face aux 10 risques de l'**OWASP LLM Top 10**.
 
 ### Architecture & Fonctionnalités Clés
-- **Sélection Matérielle Automatique (`[HARDWARE-AI]`) :** L'installateur télécharge **3 modèles Ollama** et sélectionne automatiquement au démarrage le modèle adapté à la mémoire RAM libre du PC :
+- **Sélection Matérielle Automatique (`[HARDWARE-AI]`) :** L'installateur télécharge **2 modèles Ollama légers** et sélectionne automatiquement au démarrage le modèle adapté à la mémoire RAM libre du PC :
   1. `smollm2:135m` *(Tier-1 Ultra-Léger 92 Mo — VM & Petites configurations < 1.2 Go RAM libre)*
   2. `qwen2.5:0.5b` *(Tier-2 Équilibré Bilingue FR/EN 390 Mo — PC Standard 1.2 à 3.8 Go RAM libre)*
-  3. `llama3.2:1b` *(Tier-3 Haute Précision 1.3 Go — PC >= 3.8 Go RAM libre)*
-- **Spider d'Auto-Découverte Web IA (`[AUTO-DISCOVERY]`) :** Si l'URL fournie est une page Web HTML, le scanner inspecte automatiquement le DOM et les scripts JavaScript (`fetch`, `axios`, `<form>`) pour découvrir l'endpoint API caché et le schéma JSON attendu.
+  - **Spider d'Auto-Découverte Web IA (`[AUTO-DISCOVERY]`) :** Si l'URL fournie est une page Web HTML, le scanner inspecte automatiquement le DOM et les scripts JavaScript (`fetch`, `axios`, `<form>`) pour découvrir l'endpoint API caché et le schéma JSON attendu.
 - **Phase 0 — Profilage Sémantique Multi-Tours :** Notre IA génère des questions de découverte (Tours 1 & 2), dialogue avec l'IA cible pour établir la confiance (*Trust*) et déduit son rôle métier ainsi que sa surface d'attaque.
 - **Phase 1 — Génération Dynamique des Prompts & Audit OWASP (LLM01 à LLM10) :** À partir du rôle découvert en Phase 0 et des sondes de référence (*Garak / JailbreakBench*), notre IA génère un prompt d'audit contextualisé pour chaque faille, analyse la réponse (Signatures Regex + Entropie de Shannon $H(X)$ + Jugement IA) et attribue un verdict.
 - **Phase 2 — Analyse d'Écart Normative (*Gap Analysis*) :** Évaluation sur 4 critères (`C1 Confidentialité`, `C2 Garde-fous`, `C3 Intégrité Sorties`, `C4 Résilience Réseau`) par rapport au seuil standard de mise en production (`80/100`).

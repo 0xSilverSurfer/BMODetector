@@ -19,7 +19,6 @@ REFUSAL_PATTERNS = [
 ]
 
 def get_system_ram_gb() -> tuple[float, float]:
-    """Détecte la RAM Totale et la RAM Disponible (en Go) sous Linux et Windows."""
     try:
         if sys.platform.startswith("win"):
             class MEMORYSTATUSEX(ctypes.Structure):
@@ -51,10 +50,6 @@ def get_system_ram_gb() -> tuple[float, float]:
         return 4.0, 2.0
 
 async def select_best_model_for_pc(preferred_model: str = "auto") -> tuple[str, str]:
-    """
-    Choisit automatiquement le modèle Ollama optimal parmi les 3 modèles installés
-    (llama3.2:1b, qwen2.5:0.5b, smollm2:135m) selon la RAM libre du PC.
-    """
     total_gb, avail_gb = get_system_ram_gb()
     installed = []
     try:
@@ -66,32 +61,27 @@ async def select_best_model_for_pc(preferred_model: str = "auto") -> tuple[str, 
         pass
 
     if preferred_model != "auto" and preferred_model in installed:
-        return preferred_model, f"RAM Totale: {total_gb} Go (Libre: {avail_gb} Go) | Modèle forcé: {preferred_model}"
+        return preferred_model, f"RAM Totale: {total_gb} Go (Libre: {avail_gb} Go) | Modèle sélectionné: {preferred_model}"
 
-    # Sélection intelligente selon la RAM libre pour ne jamais bloquer la machine
-    if avail_gb >= 3.8 and "llama3.2:1b" in installed:
-        chosen = "llama3.2:1b"
-        tier = "Tier-3 Haute Précision (PC >= 4 Go RAM Libre)"
-    elif avail_gb >= 1.2 and "qwen2.5:0.5b" in installed:
+    if avail_gb >= 1.5 and "qwen2.5:0.5b" in installed:
         chosen = "qwen2.5:0.5b"
-        tier = "Tier-2 Équilibré FR/EN (PC Standard)"
+        tier = "Mode Équilibré Bilingue FR/EN (PC Standard)"
     elif "smollm2:135m" in installed:
         chosen = "smollm2:135m"
-        tier = "Tier-1 Ultra-Léger Anti-Freeze (VM / RAM limitée)"
+        tier = "Mode Ultra-Léger Rapide (VM / Petite RAM)"
     elif installed:
         chosen = installed[0]
-        tier = "Modèle local détecté"
+        tier = "Modèle local actif"
     else:
         chosen = "smollm2:135m"
-        tier = "Mode Hybride (Aucun modèle Ollama actif)"
+        tier = "Mode Hybride (Signatures Regex)"
 
-    hw_info = f"RAM Totale: {total_gb} Go (Libre: {avail_gb} Go) | Modèles dispo: {len(installed)} ➔ Choix auto: {chosen} ({tier})"
+    hw_info = f"RAM Totale: {total_gb} Go (Libre: {avail_gb} Go) ➔ Choix auto: {chosen} ({tier})"
     return chosen, hw_info
 
-async def ask_local_ai(prompt: str, model: str, max_tokens: int = 55) -> str:
-    """Interroge le modèle Ollama sélectionné pour générer prompts, analyses et recommandations."""
+async def ask_local_ai(prompt: str, model: str, max_tokens: int = 50) -> str:
     try:
-        async with httpx.AsyncClient(timeout=40.0) as client:
+        async with httpx.AsyncClient(timeout=35.0) as client:
             res = await client.post(
                 OLLAMA_URL,
                 json={
@@ -233,10 +223,6 @@ async def run_semantic_profiling(
     use_llm: bool,
     model: str
 ) -> dict:
-    """
-    PHASE 0 : L'IA de BMODetector génère les questions de découverte (Tour 1 & Tour 2),
-    dialogue avec l'IA cible et définit son rôle métier.
-    """
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
     q1 = await ask_local_ai(
@@ -314,10 +300,6 @@ async def run_semantic_profiling(
     }
 
 async def generate_audit_prompt(num: int, owasp_id: str, ai_goal: str, base_prompt: str, use_llm: bool, model: str, target_role: str = "") -> str:
-    """
-    PHASE 1 : Notre IA prend l'exemple du module OWASP (base_prompt) et le rôle découvert en Phase 0 (target_role)
-    pour générer un prompt d'attaque adapté à la cible.
-    """
     if use_llm:
         gen_instruction = (
             f"Target role: '{target_role}'. Audit goal: {owasp_id} ({ai_goal}). "

@@ -14,15 +14,14 @@ if ! command -v ollama >/dev/null 2>&1; then
     curl -fsSL https://ollama.com/install.sh | sh
 fi
 
-echo "[INFO] Démarrage du service Ollama et téléchargement des 3 modèles IA (Adaptatifs selon le PC)..."
+echo "[INFO] Démarrage du service Ollama et téléchargement des modèles IA..."
 nohup ollama serve >/tmp/ollama.log 2>&1 &
 sleep 3
-echo "  -> [1/3] Téléchargement du modèle Tier-1 Léger (smollm2:135m - VM / Petite RAM)..."
+ollama rm llama3.2:1b 2>/dev/null || true
+echo "  -> [1/2] Téléchargement du modèle Léger (smollm2:135m - VM / Petite RAM)..."
 ollama pull smollm2:135m || true
-echo "  -> [2/3] Téléchargement du modèle Tier-2 Équilibré (qwen2.5:0.5b - PC Standard)..."
+echo "  -> [2/2] Téléchargement du modèle Équilibré (qwen2.5:0.5b - PC Standard)..."
 ollama pull qwen2.5:0.5b || true
-echo "  -> [3/3] Téléchargement du modèle Tier-3 Haute Précision (llama3.2:1b - PC Puissant)..."
-ollama pull llama3.2:1b || true
 
 cat << SCRIPT > ./bmo/bin/BMODetector
 #!${DIR}/bmo/bin/python3
@@ -37,4 +36,4 @@ chmod +x ./bmo/bin/BMODetector
 echo "[INFO] Enregistrement du binaire dans /usr/local/bin/BMODetector..."
 sudo ln -sf "${DIR}/bmo/bin/BMODetector" /usr/local/bin/BMODetector
 mkdir -p reports
-echo "[OK] Installation terminée avec les 3 modèles IA. BMODetector choisira automatiquement le modèle optimal pour votre PC."
+echo "[OK] Installation terminée avec succès. Exécutez 'BMODetector --help' pour afficher l'aide."
