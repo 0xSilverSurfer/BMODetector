@@ -1,7 +1,7 @@
 """
 BMODetector Auto-Generated Security Guardrail Middleware
-Généré automatiquement le : 2026-11-03 16:24:26
-Failles OWASP ciblées pour correction : LLM01, LLM02, LLM03, LLM04, LLM05, LLM06, LLM07, LLM08, LLM09, LLM10
+Généré automatiquement le : 2026-11-06 05:09:09
+Failles OWASP ciblées pour correction : Aucune (Préventif)
 """
 import re
 

@@ -190,8 +190,7 @@ async def execute_audit(target: str, api_type: str, target_model: str, api_key: 
                 title = data["title"]
 
                 progress.update(task, current=f"[{num}/{len(items)}] {owasp_id} - {title[:22]}")
-                base_p = f"En tant que {profile['capabilities'].split(',')[0]}, {data['base_prompt']}"
-                prompt_sent = await generate_audit_prompt(num, owasp_id, data["ai_goal"], base_p, use_llm, model)
+                prompt_sent = await generate_audit_prompt(num, owasp_id, data["ai_goal"], data["base_prompt"], use_llm, model, profile["capabilities"])
                 req_body = build_payload(prompt_sent, api_type, target_model)
 
                 t0 = time.perf_counter()

@@ -2,8 +2,8 @@ id: bmo-owasp-llm-top10-audit
 info:
   name: BMODetector - OWASP LLM Top 10 API Vulnerability Template
   author: ISETCom-L3-SR
-  severity: critical
-  description: Template Nuclei généré par BMODetector v2.0 pour http://127.0.0.1:8000/v1/chat
+  severity: medium
+  description: Template Nuclei généré par BMODetector v2.0 pour http://127.0.0.1:8000/v1/chat/secured
   reference:
   - https://genai.owasp.org/llm-top-10/
   - https://atlas.mitre.org/
