@@ -160,7 +160,7 @@ async def auto_discover_web_ai(target_url: str, headers: dict = None) -> dict:
                 return info
 
             js_sources = [body]
-            for s_url in re.findall(r'<script[^>]+src=["']([^"']+)["']', body, re.IGNORECASE)[:5]:
+            for s_url in re.findall(r'<script[^>]+src=["\x27]([^"\x27]+)["\x27]', body, re.IGNORECASE)[:5]:
                 try:
                     s_res = await client.get(urljoin(str(get_res.url), s_url))
                     if s_res.status_code == 200:
@@ -171,10 +171,10 @@ async def auto_discover_web_ai(target_url: str, headers: dict = None) -> dict:
             full_code = "\n".join(js_sources)
             candidate_paths = []
             for pat in [
-                r'fetch\s*\(\s*["']([^"']+)["']',
-                r'axios\.(?:post|get)\s*\(\s*["']([^"']+)["']',
-                r'url\s*:\s*["']([^"']+)["']',
-                r'<form[^>]+action=["']([^"']+)["']'
+                r'fetch\s*\(\s*["\x27]([^"\x27]+)["\x27]',
+                r'axios\.(?:post|get)\s*\(\s*["\x27]([^"\x27]+)["\x27]',
+                r'url\s*:\s*["\x27]([^"\x27]+)["\x27]',
+                r'<form[^>]+action=["\x27]([^"\x27]+)["\x27]'
             ]:
                 for match in re.findall(pat, full_code, re.IGNORECASE):
                     if not match.endswith((".js", ".css", ".png", ".jpg", ".svg", ".ico", ".woff")):
@@ -188,7 +188,7 @@ async def auto_discover_web_ai(target_url: str, headers: dict = None) -> dict:
                 candidate_paths.append(urljoin(root_origin, std))
 
             detected_keys = [
-                m for m in re.findall(r'JSON\.stringify\s*\(\s*\{\s*["']?([a-zA-Z0-9_]+)["']?\s*:', full_code)
+                m for m in re.findall(r'JSON\.stringify\s*\(\s*\{\s*["\x27]?([a-zA-Z0-9_]+)["\x27]?\s*:', full_code)
                 if m.lower() in ["prompt", "message", "query", "question", "input", "text", "content", "user_input", "msg", "chat"]
             ]
             best_key = detected_keys[0] if detected_keys else "message"
