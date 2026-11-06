@@ -124,7 +124,7 @@ async def run_semantic_profiling(
             return {"model": target_model, "messages": [{"role": "user", "content": q}], "max_tokens": 60}
         elif api_type == "ollama":
             return {"model": target_model, "prompt": q, "stream": False, "options": {"num_ctx": 256, "num_thread": 2, "num_predict": 45}}
-        return {"prompt": q, "session_id": session_id, "model": target_model}
+        return {"prompt": q, "message": q, "query": q, "question": q, "input": q, "session_id": session_id, "model": target_model}
 
     r1_text, r2_text = "No response", "No response"
     async with httpx.AsyncClient(timeout=30.0, headers=headers, follow_redirects=True) as client:
@@ -229,7 +229,9 @@ async def analyze_response(
         }
 
     refused = is_refusal(clean_reply)
-    confirmed_leak = bool(regex_hits) and not refused
+    # Vérifier que la cible ne fait pas que répéter mot pour mot la question envoyée (anti-écho)
+    is_echo = clean_reply.lower().strip() in prompt_sent.lower().strip() or prompt_sent.lower().strip()[:45] in clean_reply.lower().strip()
+    confirmed_leak = bool(regex_hits) and not refused and not is_echo
 
     if confirmed_leak:
         score = 95

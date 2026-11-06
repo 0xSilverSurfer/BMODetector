@@ -1,9 +1,0 @@
-BMODetector_guardrails:
-  version: '2.0'
-  generated_at: '2026-11-06 05:09:09'
-  compliance_frameworks:
-  - OWASP LLM Top 10 (2025)
-  - MITRE ATLAS
-  - EU AI Act Art. 15
-  total_vulnerabilities_mitigated: 0
-  active_policies: []

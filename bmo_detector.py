@@ -28,7 +28,8 @@ from judge import (
     run_network_recon,
     run_semantic_profiling,
     detect_high_entropy_secrets,
-    auto_discover_web_ai
+    auto_discover_web_ai,
+    extract_response_text
 )
 from reporter import (
     MITRE_ATLAS_MAP,
@@ -221,8 +222,9 @@ async def execute_audit(target: str, api_type: str, target_model: str, api_key: 
                     http_status = "CONN_ERR"
                     raw_text = f"Erreur de connexion : {str(e)}"
 
-                regex_hits = evaluate_regex(raw_text, data.get("regex_patterns", []))
-                entropy_hits = detect_high_entropy_secrets(raw_text) if owasp_id in ["LLM02", "LLM07"] else []
+                clean_for_check = extract_response_text(raw_text)
+                regex_hits = evaluate_regex(clean_for_check, data.get("regex_patterns", []))
+                entropy_hits = detect_high_entropy_secrets(clean_for_check) if owasp_id in ["LLM02", "LLM07"] else []
                 regex_hits.extend(entropy_hits)
                 eval_res = await analyze_response(
                     num=num,
@@ -284,6 +286,35 @@ def run_benchmark_validator(results: list[dict]):
     bt.add_row("Débit de Traitement (Throughput)", f"{rps} req/s", "Capacité de traitement du moteur d'audit BMODetector")
     bt.add_row("Analyse d'Entropie de Shannon H(X)", "Active (Seuil >= 4.1 bits)", "Détection mathématique de secrets et tokens haute-entropie")
     console.print(bt)
+
+
+def get_lan_ip() -> str:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+    except Exception:
+        return "127.0.0.1"
+
+def serve_reports_on_lan(port: int = 9090):
+    import http.server
+    import functools
+    lan_ip = get_lan_ip()
+    console.print(Panel(
+        f"[bold green]Serveur de Partage Réseau LAN Actif (Accessible depuis les autres PC) :[/bold green]\n"
+        f"• Dashboard Cyber HTML5 : [bold cyan]http://{lan_ip}:{port}/dashboard.html[/bold cyan]\n"
+        f"• Rapport Officiel PDF  : [bold cyan]http://{lan_ip}:{port}/audit_report.pdf[/bold cyan]\n"
+        f"• Tous les livrables    : [bold cyan]http://{lan_ip}:{port}/[/bold cyan]\n"
+        f"[dim]Appuyez sur Ctrl+C pour arrêter le serveur de partage.[/dim]",
+        title="Partage Multi-PC (Réseau LAN)",
+        border_style="green"
+    ))
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory="reports")
+    with http.server.ThreadingHTTPServer(("0.0.0.0", port), handler) as httpd:
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            console.print("\n[yellow][INFO][/yellow] Serveur de partage arrêté.")
 
 def render_reports_to_console(target: str, results: list[dict]):
     # PARTIE 1 : Résultats des tests OWASP LLM
@@ -386,7 +417,8 @@ def main(
     output_guardrails: str = typer.Option("reports/guardrails.yaml", "--output-guardrails", help="Chemin du fichier de garde-fous YAML", rich_help_panel="3. Rapports & DevSecOps"),
     output_sarif: str = typer.Option("reports/audit_results.sarif", "--output-sarif", help="Chemin de l'export SARIF 2.1.0", rich_help_panel="3. Rapports & DevSecOps"),
     output_cef: str = typer.Option("reports/siem_wazuh.cef", "--output-cef", help="Chemin des logs SIEM au format CEF", rich_help_panel="3. Rapports & DevSecOps"),
-    fail_on_vuln: bool = typer.Option(False, "--fail-on-vuln", help="Retourner le code de sortie 1 si au moins une faille est détectée (CI/CD)", rich_help_panel="3. Rapports & DevSecOps")
+    fail_on_vuln: bool = typer.Option(False, "--fail-on-vuln", help="Retourner le code de sortie 1 si au moins une faille est détectée (CI/CD)", rich_help_panel="3. Rapports & DevSecOps"),
+    serve: bool = typer.Option(False, "--serve", "-s", help="Exposer les rapports sur le réseau LAN (0.0.0.0:9090) pour les autres PC", rich_help_panel="3. Rapports & DevSecOps")
 ):
     if format_out.lower() != "json":
         console.print(Panel(HEADER_TEXT, border_style="cyan"))
@@ -442,6 +474,9 @@ def main(
     if format_out.lower() != "json":
         console.print(f"\n[cyan][HISTORIQUE][/cyan] {trend_msg}")
         console.print(f"[green][OK][/green] Livrables générés : [cyan]{output_pdf}[/cyan] | [cyan]{output_html}[/cyan] | [cyan]{output_guardrails}[/cyan] | [cyan]reports/BMODetector_middleware.py[/cyan] | [cyan]reports/nuclei_llm_audit.yaml[/cyan]")
+
+    if serve:
+        serve_reports_on_lan(9090)
 
     vuln_count = len([r for r in results if r["score"] >= 40])
     if fail_on_vuln and vuln_count > 0:
