@@ -11,8 +11,8 @@ read -p "[2/4] Appuyez sur [Entrée] pour afficher le catalogue OWASP LLM Top 10
 BMODetector -l
 
 echo ""
-read -p "[3/4] Appuyez sur [Entrée] pour lancer l'audit complet (Profilage + OWASP + Gap Analysis + Benchmark)..."
-BMODetector -t http://127.0.0.1:8000/v1/chat --recon --benchmark --use-llm
+read -p "[3/4] Appuyez sur [Entrée] pour lancer l'audit complet avec sélection matérielle IA automatique..."
+BMODetector -t http://127.0.0.1:8000/v1/chat --recon --benchmark
 
 echo ""
 read -p "[4/4] Appuyez sur [Entrée] pour afficher les livrables générés et ouvrir le Dashboard HTML & PDF..."

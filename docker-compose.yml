@@ -13,4 +13,4 @@ services:
       - mock-api
     volumes:
       - ./reports:/app/reports
-    entrypoint: ["sh", "-c", "sleep 2 && python bmo_detector.py --target http://mock-api:8000/v1/chat --recon"]
+    entrypoint: ["sh", "-c", "sleep 2 && python bmo_detector.py -t http://mock-api:8000/v1/chat --recon --benchmark --no-llm"]

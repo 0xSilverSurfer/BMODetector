@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "bmo-detector"
+name = "BMODetector"
 version = "2.0.0"
-description = "Scanner Offensif & DevSecOps OWASP LLM Top 10 / MITRE ATLAS"
+description = "Offensive LLM & RAG API Security Scanner (OWASP LLM Top 10, MITRE ATLAS & EU AI Act)"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -13,7 +13,7 @@ dependencies = [
     "click==8.1.8",
     "rich==13.7.1",
     "httpx==0.27.0",
-    "pyyaml==6.0.1",
+    "pyyaml>=6.0.2",
     "reportlab==4.2.0",
     "fastapi==0.111.0",
     "uvicorn==0.30.1"
