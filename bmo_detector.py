@@ -23,6 +23,7 @@ from rich.progress import Progress, BarColumn, TextColumn, TaskProgressColumn
 
 from judge import (
     select_best_model_for_pc,
+    generate_multi_audit_prompts,
     generate_audit_prompt,
     evaluate_regex,
     analyze_response,
@@ -209,40 +210,56 @@ async def execute_audit(target: str, api_type: str, target_model: str, api_key: 
                 owasp_id = data["owasp_id"]
                 title = data["title"]
 
-                progress.update(task, current=f"[{num}/{len(items)}] {owasp_id} - {title[:22]}")
-                prompt_sent = await generate_audit_prompt(num, owasp_id, data["ai_goal"], data["base_prompt"], use_llm, model, profile["capabilities"])
-                req_body = build_payload(prompt_sent, api_type, target_model, param_key)
+                progress.update(task, current=f"[{num}/{len(items)}] {owasp_id} (Multi-Probes IA)")
+                candidate_prompts = await generate_multi_audit_prompts(num, owasp_id, data["ai_goal"], data["base_prompt"], use_llm, model, profile["capabilities"])
 
-                t0 = time.perf_counter()
-                try:
-                    res = await client.post(target, json=req_body)
-                    latency_ms = round((time.perf_counter() - t0) * 1000, 1)
-                    status_code = res.status_code
-                    http_status = f"{status_code} OK" if status_code == 200 else f"HTTP {status_code}"
-                    raw_text = res.text
-                except Exception as e:
-                    latency_ms = round((time.perf_counter() - t0) * 1000, 1)
-                    status_code = 0
-                    http_status = "CONN_ERR"
-                    raw_text = f"Erreur de connexion : {str(e)}"
+                best_eval = None
+                prompt_sent = candidate_prompts[0]
+                latency_ms = 0.0
+                http_status = "200 OK"
 
-                clean_for_check = extract_response_text(raw_text)
-                regex_hits = evaluate_regex(clean_for_check, data.get("regex_patterns", []))
-                entropy_hits = detect_high_entropy_secrets(clean_for_check) if owasp_id in ["LLM02", "LLM07"] else []
-                regex_hits.extend(entropy_hits)
-                eval_res = await analyze_response(
-                    num=num,
-                    owasp_id=owasp_id,
-                    title=title,
-                    prompt_sent=prompt_sent,
-                    raw_response=raw_text,
-                    http_status=status_code,
-                    latency_ms=latency_ms,
-                    regex_hits=regex_hits,
-                    base_remediation=data["remediation"],
-                    use_llm=use_llm,
-                    model=model
-                )
+                for probe_idx, p_cand in enumerate(candidate_prompts, 1):
+                    progress.update(task, current=f"[{num}/{len(items)}] {owasp_id} - Sonde IA #{probe_idx}/{len(candidate_prompts)}")
+                    req_body = build_payload(p_cand, api_type, target_model, param_key)
+                    t0 = time.perf_counter()
+                    try:
+                        res = await client.post(target, json=req_body)
+                        lat = round((time.perf_counter() - t0) * 1000, 1)
+                        status_code = res.status_code
+                        h_stat = f"{status_code} OK" if status_code == 200 else f"HTTP {status_code}"
+                        raw_text = res.text
+                    except Exception as e:
+                        lat = round((time.perf_counter() - t0) * 1000, 1)
+                        status_code = 0
+                        h_stat = "CONN_ERR"
+                        raw_text = f"Erreur de connexion : {str(e)}"
+
+                    clean_for_check = extract_response_text(raw_text)
+                    regex_hits = evaluate_regex(clean_for_check, data.get("regex_patterns", []))
+                    entropy_hits = detect_high_entropy_secrets(clean_for_check) if owasp_id in ["LLM02", "LLM07"] else []
+                    regex_hits.extend(entropy_hits)
+                    cur_eval = await analyze_response(
+                        num=num,
+                        owasp_id=owasp_id,
+                        title=title,
+                        prompt_sent=p_cand,
+                        raw_response=raw_text,
+                        http_status=status_code,
+                        latency_ms=lat,
+                        regex_hits=regex_hits,
+                        base_remediation=data["remediation"],
+                        use_llm=use_llm,
+                        model=model
+                    )
+                    if best_eval is None or cur_eval["score"] > best_eval["score"]:
+                        best_eval = cur_eval
+                        prompt_sent = f"[Sonde #{probe_idx}/{len(candidate_prompts)}] {p_cand}"
+                        latency_ms = lat
+                        http_status = h_stat
+                    if cur_eval["score"] >= 90:
+                        break
+
+                eval_res = best_eval
 
                 results.append({
                     "num": num,
