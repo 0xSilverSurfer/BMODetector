@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 clear
 echo "=================================================================="
-echo "   DÉMONSTRATION SOUTENANCE - BMODetector v2.0 (ISETCom L3 SR)    "
+echo "   DÉMONSTRATION SOUTENANCE - BMODetector v2.1 (ISETCom L3 SR)    "
 echo "=================================================================="
 read -p "[1/4] Appuyez sur [Entrée] pour afficher l'aide de BMODetector (--help)..."
 BMODetector --help

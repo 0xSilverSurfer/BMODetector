@@ -1,16 +1,16 @@
-version: '3.8'
-
 services:
   mock-api:
     build: .
     entrypoint: ["uvicorn", "target_lab.mock_api:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"   # cible VOLONTAIREMENT vulnérable : jamais exposée au réseau
 
   bmo-scanner:
     build: .
     depends_on:
       - mock-api
+    user: "${UID:-1000}:${GID:-1000}"
     volumes:
       - ./reports:/app/reports
-    entrypoint: ["sh", "-c", "sleep 2 && python bmo_detector.py -t http://mock-api:8000/v1/chat --recon --benchmark --no-llm"]
+    # --no-llm : Ollama n'est pas dans ce compose ; l'analyse est alors 100 % déterministe.
+    entrypoint: ["sh", "-c", "sleep 2 && python bmo_detector.py -t http://mock-api:8000/v1/chat --recon --benchmark --no-llm -o /app/reports"]
