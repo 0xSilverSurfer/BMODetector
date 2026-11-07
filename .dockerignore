@@ -1,5 +1,12 @@
 bmo/
 venv/
+.venv/
+.git/
+.github/
+tests/
 __pycache__/
 *.pyc
-reports/*.pdf
+reports/
+*.egg-info/
+build/
+dist/
