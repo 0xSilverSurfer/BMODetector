@@ -59,7 +59,8 @@ Installation manuelle : `pip install .` (ou `pip install ".[lab]"` pour la cible
 
 ## 3. Utilisation
 
-```bash
+```bash 
+BMODetector --help
 BMODetector -l                                                        # catalogue (IDs MITRE/Garak vérifiés)
 BMODetector -t http://127.0.0.1:8000/v1/chat --recon --benchmark      # labo local (démarré automatiquement)
 BMODetector -t http://127.0.0.1:11434/api/generate --api-type ollama --target-model smollm2:135m
