@@ -22,7 +22,10 @@ dependencies = [
 [project.optional-dependencies]
 # Cible de laboratoire volontairement vulnérable (target_lab/mock_api.py)
 lab = ["fastapi>=0.110", "uvicorn>=0.29"]
-dev = ["fastapi>=0.110", "uvicorn>=0.29", "pytest>=8", "jsonschema>=4", "ruff>=0.5"]
+# --login-browser : capture de cookies via un vrai navigateur (login manuel : CSRF, OAuth, captcha).
+# Après installation : `playwright install chromium` (télécharge le binaire du navigateur).
+browser = ["playwright>=1.44"]
+dev = ["fastapi>=0.110", "uvicorn>=0.29", "pytest>=8", "jsonschema>=4", "ruff>=0.5", "playwright>=1.44"]
 
 [project.scripts]
 BMODetector = "bmo_detector:app"

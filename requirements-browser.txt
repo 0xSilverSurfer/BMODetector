@@ -1,0 +1,4 @@
+-r requirements.txt
+# --login-browser : capture de cookies via un vrai navigateur (CSRF/OAuth/2FA).
+# Après installation : playwright install chromium
+playwright>=1.44
