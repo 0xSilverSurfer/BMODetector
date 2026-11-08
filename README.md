@@ -51,7 +51,8 @@ BMODetector --help
 .\BMODetector.bat --help
 ```
 Ollama est **optionnel** (`--no-llm`). L'installateur ne supprime jamais vos modèles et demande confirmation avant d'installer Ollama (`BMO_ASSUME_YES=1` pour automatiser, `BMO_SKIP_OLLAMA=1` pour l'ignorer).  
-Installation manuelle : `pip install .` (ou `pip install ".[lab]"` pour la cible de labo).
+Installation manuelle : `pip install .` (ou `pip install -r requirements.txt`).
+Extras optionnels : `pip install ".[lab]"` (cible de labo) • `pip install ".[browser]"` puis `playwright install chromium` (`--login-browser`, capture de cookies via navigateur réel) • `pip install ".[dev]"` (tests + les deux extras ci-dessus) — équivalents `requirements-lab.txt` / `requirements-browser.txt` si vous préférez `pip install -r`.
 
 **Modèle IA sélectionné selon la RAM libre :** < 1,2 Go → `smollm2:135m` • ≥ 1,2 Go → `qwen2.5:0.5b` (si installés). `OLLAMA_HOST` est respecté.
 
@@ -59,8 +60,7 @@ Installation manuelle : `pip install .` (ou `pip install ".[lab]"` pour la cible
 
 ## 3. Utilisation
 
-```bash 
-BMODetector --help
+```bash
 BMODetector -l                                                        # catalogue (IDs MITRE/Garak vérifiés)
 BMODetector -t http://127.0.0.1:8000/v1/chat --recon --benchmark      # labo local (démarré automatiquement)
 BMODetector -t http://127.0.0.1:11434/api/generate --api-type ollama --target-model smollm2:135m
@@ -78,6 +78,10 @@ BMODetector -t ... --fail-on-vuln            # CI/CD
 | `--only`, `-n` | Choisir les modules / en limiter le nombre. |
 | `--repeat`, `--max-probes`, `--max-tokens`, `--timeout`, `--delay` | Fiabilité et respect des rate-limits. |
 | `-H`, `--proxy`, `--insecure`, `--no-discover` | En-têtes/cookies, Burp/ZAP, TLS, découverte d'endpoint. |
+| `--param-key` | Force le champ JSON du prompt et désactive la découverte auto. **Indispensable pour les widgets de chat en HTML/JS** (beaucoup de CTF) : la découverte ne lit que le HTML statique et les scripts, pas une UI rendue en JS. Ouvrez l'onglet Réseau du navigateur, envoyez un message, copiez l'URL et le nom du champ JSON. |
+| `--login-url`, `--login-user`, `--login-pass`, `--login-field-user`, `--login-field-pass`, `--login-token-path` | Authentifie la cible **avant** le scan via une API de login simple (POST JSON). Avec `--login-token-path` (ex. `access_token`, `data.token`), le jeton extrait est envoyé en `Authorization: Bearer ...` ; sinon, les cookies de session du login sont réutilisés pour tout le scan. Un login raté dégrade proprement (avertissement, scan non authentifié). |
+| `--cookie`, `--cookie-file` | Connectez-vous **vous-même** dans votre navigateur, copiez les cookies (onglet Réseau, ou une extension type Cookie-Editor pour `--cookie-file` au format JSON), le scanner les réutilise. Fonctionne pour tout type de login (y compris CSRF/OAuth), sans dépendance supplémentaire. |
+| `--login-browser [--login-browser-url]` | Ouvre un **vrai navigateur** (Chromium) sur la page de login : connectez-vous normalement (identifiants, OAuth, 2FA, captcha — tout ce qu'un POST JSON ne peut pas automatiser), appuyez sur Entrée dans le terminal, et les cookies de session sont **capturés automatiquement**. Nécessite `pip install ".[browser]"` puis `playwright install chromium` ; sans affichage graphique (serveur headless), utilisez `--cookie`/`--cookie-file` à la place. |
 | `--serve [--serve-host]` | Sert les rapports sur `127.0.0.1:9090` (`0.0.0.0` = exposé, sans auth). |
 
 **Codes de sortie :** `0` OK • `1` finding(s) avec `--fail-on-vuln` • `2` scan non concluant / erreur d'usage.  
@@ -103,5 +107,7 @@ ruff check . && pytest -q
 - Le middleware généré est une défense en profondeur par motifs (contournable) : il ne remplace pas la correction de la cause racine.
 - Les sondes sont séquentielles et courtes ; elles ne remplacent pas un outil complet (Garak, PyRIT, promptfoo) pour un audit exhaustif.
 
-## 6. Changelog v2.1
-Un test non concluant n'est plus un `PASS` • `--no-llm` désactive réellement l'IA et aucun message d'erreur Ollama ne devient une sonde • la sonde du catalogue n'est plus écartée • verdict déterministe (canary, signatures fortes/faibles, anti-écho) • sorties non tronquées à 50/80 tokens • dashboard HTML échappé (+CSP) et console protégée contre le markup Rich • JSON pur sur stdout • découverte limitée à l'origine • clé API par variable d'environnement, plus de clé par défaut • serveur de rapports sur localhost par défaut • installateurs sans `ollama rm` ni `sudo` • `pip install .` embarque `payloads/` • MITRE ATLAS / Garak corrigés et vérifiés • SARIF valide (règles, empreintes) • Nuclei par module • CEF échappé • tests (pytest), CI, LICENSE.
+## 6. Changelog
+**v2.2** : plus de troncature à 1500 caractères avant détection (une page HTML longue ne fait plus rater une preuve) • `--param-key` pour forcer l'URL/le champ JSON sur les widgets de chat en HTML/JS que la découverte auto ne peut pas lire • authentification avant scan : `--login-url` (API simple), `--cookie`/`--cookie-file` (connexion manuelle dans votre navigateur), `--login-browser` (capture automatique de cookies via un vrai Chromium, pour CSRF/OAuth/2FA).
+
+**v2.1** : un test non concluant n'est plus un `PASS` • `--no-llm` désactive réellement l'IA et aucun message d'erreur Ollama ne devient une sonde • la sonde du catalogue n'est plus écartée • verdict déterministe (canary, signatures fortes/faibles, anti-écho) • sorties non tronquées à 50/80 tokens • dashboard HTML échappé (+CSP) et console protégée contre le markup Rich • JSON pur sur stdout • découverte limitée à l'origine • clé API par variable d'environnement, plus de clé par défaut • serveur de rapports sur localhost par défaut • installateurs sans `ollama rm` ni `sudo` • `pip install .` embarque `payloads/` • MITRE ATLAS / Garak corrigés et vérifiés • SARIF valide (règles, empreintes) • Nuclei par module • CEF échappé • tests (pytest), CI, LICENSE.

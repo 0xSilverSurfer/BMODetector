@@ -109,6 +109,117 @@ class HttpConfig:
         )
 
 
+def _dig(obj, path: str):
+    """Navigue dans un JSON avec un chemin 'a.b.c' (ex. 'data.access_token')."""
+    cur = obj
+    for part in path.split("."):
+        if isinstance(cur, dict) and part in cur:
+            cur = cur[part]
+        else:
+            return None
+    return cur
+
+
+async def perform_login(login_url: str, login_json: dict, http: HttpConfig, token_path: str | None,
+                        auth_header: str = "Authorization", auth_scheme: str = "Bearer") -> tuple[HttpConfig, str]:
+    """Authentifie la cible avant le scan (formulaire ou API de login) et retourne un HttpConfig mis à jour.
+
+    - Si ``token_path`` est fourni, le jeton est extrait du JSON de réponse (ex. 'access_token',
+      'data.token') et ajouté comme en-tête Authorization.
+    - Sinon, les cookies de session renvoyés par le login sont réutilisés pour le reste du scan
+      (cas des applications web classiques, y compris les CTF type « login form »).
+    Ne lève jamais d'exception : en cas d'échec, retourne la config inchangée avec un message d'erreur.
+    """
+    try:
+        async with http.client(with_auth=False, timeout=20.0) as client:
+            res = await client.post(login_url, json=login_json)
+            if res.status_code not in (200, 201, 204):
+                return http, f"Échec du login : HTTP {res.status_code} sur {login_url}"
+            cookies = dict(client.cookies)
+            token = None
+            if token_path:
+                try:
+                    token = _dig(res.json(), token_path)
+                except Exception:
+                    token = None
+            new_headers = dict(http.headers)
+            msg_parts = []
+            if token:
+                new_headers[auth_header] = f"{auth_scheme} {token}".strip() if auth_scheme else str(token)
+                msg_parts.append(f"jeton extrait de '{token_path}'")
+            if cookies:
+                msg_parts.append(f"{len(cookies)} cookie(s) de session")
+            if not token and not cookies:
+                return http, f"Login effectué (HTTP {res.status_code}) mais ni jeton ni cookie récupéré : vérifiez --login-token-path."
+            merged_cookies = {**(http.cookies or {}), **cookies} if cookies else http.cookies
+            return (HttpConfig(headers=new_headers, cookies=merged_cookies, timeout=http.timeout,
+                               verify=http.verify, proxy=http.proxy, delay=http.delay),
+                    "Login réussi : " + ", ".join(msg_parts))
+    except Exception as e:
+        return http, f"Échec du login ({type(e).__name__}: {e}) : le scan continue sans authentification."
+
+
+def parse_cookie_string(raw: str) -> dict:
+    """Parse une chaîne de cookies au format d'en-tête HTTP : 'nom1=valeur1; nom2=valeur2'."""
+    cookies = {}
+    for part in raw.split(";"):
+        part = part.strip()
+        if not part or "=" not in part:
+            continue
+        name, _, value = part.partition("=")
+        cookies[name.strip()] = value.strip()
+    return cookies
+
+
+def load_cookie_file(path: str) -> dict:
+    """Charge des cookies depuis un fichier : JSON (liste [{'name','value'},...], export d'extension
+    navigateur type 'Cookie-Editor' / 'EditThisCookie') ou texte au format d'en-tête 'nom=valeur; ...'."""
+    text = open(path, "r", encoding="utf-8").read().strip()
+    try:
+        data = json.loads(text)
+        if isinstance(data, list):
+            return {c["name"]: c["value"] for c in data if isinstance(c, dict) and "name" in c and "value" in c}
+        if isinstance(data, dict):
+            return {k: (v if isinstance(v, str) else str(v)) for k, v in data.items()}
+    except Exception:
+        pass
+    return parse_cookie_string(text)
+
+
+async def capture_cookies_via_browser(url: str, wait_message: str = "") -> tuple[dict, str]:
+    """Ouvre un VRAI navigateur sur ``url`` pour un login manuel (gère CSRF, OAuth, captcha, 2FA —
+    tout ce qu'un POST JSON ne peut pas automatiser), attend que l'utilisateur confirme dans le
+    terminal, puis extrait et retourne les cookies de la session.
+
+    Nécessite l'extra optionnel : pip install ".[browser]" puis `playwright install chromium`.
+    Ne lève jamais d'exception : retourne ({}, message_erreur) en cas d'échec.
+    """
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        return {}, ("Playwright n'est pas installé. Installez-le avec : pip install \".[browser]\" "
+                    "puis : playwright install chromium")
+    try:
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(headless=False)
+            context = await browser.new_context()
+            page = await context.new_page()
+            await page.goto(url)
+            prompt_text = wait_message or (
+                f"\n[LOGIN NAVIGATEUR] Une fenêtre Chromium est ouverte sur {url}.\n"
+                "Connectez-vous normalement (identifiants, OAuth, 2FA...), puis revenez ici et "
+                "appuyez sur Entrée pour capturer la session : ")
+            await asyncio.to_thread(input, prompt_text)
+            cookies_list = await context.cookies()
+            cookies = {c["name"]: c["value"] for c in cookies_list}
+            await browser.close()
+            if not cookies:
+                return {}, "Aucun cookie capturé (login non effectué ou site sans cookie de session)."
+            return cookies, f"Session capturée : {len(cookies)} cookie(s) récupéré(s) depuis le navigateur."
+    except Exception as e:
+        return {}, f"Échec de la capture navigateur ({type(e).__name__}: {e})."
+
+
 def build_payload(prompt: str, api_type: str, target_model: str, param_key: str = "prompt",
                   max_tokens: int = 300, session_id: str | None = None,
                   history: list[tuple[str, str]] | None = None) -> dict:
@@ -303,7 +414,9 @@ def extract_response_text(raw_payload: str) -> str:
         cleaned = re.sub(r"<(script|style|head).*?>.*?</\1>", " ", raw, flags=re.DOTALL | re.IGNORECASE)
         cleaned = re.sub(r"<[^>]+>", " ", cleaned)
         cleaned = re.sub(r"\s+", " ", cleaned).strip()
-        return f"[HTML] {cleaned[:1500]}"
+        # Important : PAS de troncature ici. La détection (signatures, canary) doit voir le texte
+        # complet ; seul l'AFFICHAGE est tronqué plus tard (dans _result / les rapports).
+        return f"[HTML] {cleaned}"
 
     try:
         data = json.loads(raw)

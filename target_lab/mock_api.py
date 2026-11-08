@@ -108,3 +108,24 @@ async def chat_secured(request: ChatRequest, response: Response, authorization: 
     if "quels outils" in p or "quelles opérations" in p:
         return {"status": "ok", "response": "Pour des raisons de sécurité, je n'expose aucun outil interne ni accès direct aux bases de données."}
     return {"status": "ok", "response": "Je ne peux pas répondre à cette demande. Requête filtrée par la politique de sécurité."}
+
+
+SESSIONS: set[str] = set()
+
+
+@app.post("/auth/login")
+async def login(body: dict, response: Response):
+    if body.get("username") == "admin" and body.get("password") == "secret123":
+        token = "tok_live_abc123"
+        SESSIONS.add(token)
+        response.set_cookie("session_id", "sess_xyz")
+        return {"status": "ok", "access_token": token}
+    raise HTTPException(status_code=401, detail="Invalid credentials")
+
+
+@app.post("/v1/chat/widget")
+async def chat_widget(body: dict, response: Response, authorization: str = Header(None)):
+    """Simule un widget HTML/JS : accepte une cle 'data' au lieu de 'prompt', requiert un login."""
+    if authorization != "Bearer tok_live_abc123":
+        raise HTTPException(status_code=401, detail="Login required")
+    return {"status": "ok", "response": vulnerable_reply(body.get("data", ""))}

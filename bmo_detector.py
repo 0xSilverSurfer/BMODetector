@@ -37,7 +37,11 @@ from judge import (
     build_payload,
     configure_judge,
     ensure_ollama,
+    capture_cookies_via_browser,
     generate_multi_audit_prompts,
+    load_cookie_file,
+    parse_cookie_string,
+    perform_login,
     response_meta,
     run_network_recon,
     run_semantic_profiling,
@@ -126,6 +130,16 @@ class AuditConfig:
     proxy: Optional[str] = None
     discover: bool = True
     recon: bool = False
+    param_key: Optional[str] = None  # champ JSON forcé par l'utilisateur (ex. widgets CTF en HTML/JS)
+    login_url: Optional[str] = None
+    login_json: dict = field(default_factory=dict)
+    login_token_path: Optional[str] = None
+    login_auth_header: str = "Authorization"
+    login_auth_scheme: str = "Bearer"
+    cookie: Optional[str] = None
+    cookie_file: Optional[str] = None
+    login_browser: bool = False
+    login_browser_url: Optional[str] = None
 
 
 def is_local_target(url: str) -> bool:
@@ -262,6 +276,34 @@ async def execute_audit(cfg: AuditConfig) -> dict:
         headers["Authorization"] = f"Bearer {cfg.api_key}"
     http = HttpConfig(headers=headers, timeout=cfg.timeout, verify=cfg.verify, proxy=cfg.proxy, delay=cfg.delay)
 
+    # ---- Authentification : navigateur réel (CSRF/OAuth/2FA), cookies manuels, puis login API ----
+    if cfg.login_browser:
+        browser_url = cfg.login_browser_url or cfg.target
+        console.print(f"[cyan][LOGIN NAVIGATEUR][/cyan] Ouverture d'un navigateur sur [bold]{escape(browser_url)}[/bold]...")
+        cookies, msg = await capture_cookies_via_browser(browser_url)
+        tag = "green" if cookies else "yellow"
+        console.print(f"[{tag}][{'OK' if cookies else 'WARN'}][/{tag}] {escape(msg)}")
+        if cookies:
+            http.cookies = {**(http.cookies or {}), **cookies}
+
+    if cfg.cookie:
+        http.cookies = {**(http.cookies or {}), **parse_cookie_string(cfg.cookie)}
+        console.print(f"[cyan][INFO][/cyan] {len(parse_cookie_string(cfg.cookie))} cookie(s) ajouté(s) via --cookie.")
+    if cfg.cookie_file:
+        try:
+            file_cookies = load_cookie_file(cfg.cookie_file)
+            http.cookies = {**(http.cookies or {}), **file_cookies}
+            console.print(f"[cyan][INFO][/cyan] {len(file_cookies)} cookie(s) chargé(s) depuis {escape(cfg.cookie_file)}.")
+        except Exception as e:
+            console.print(f"[bold red][ERREUR][/bold red] Lecture de --cookie-file impossible : {escape(str(e))}")
+
+    if cfg.login_url:
+        console.print(f"[cyan][LOGIN][/cyan] Authentification sur [bold]{escape(cfg.login_url)}[/bold]...")
+        http, login_msg = await perform_login(cfg.login_url, cfg.login_json, http, cfg.login_token_path,
+                                              cfg.login_auth_header, cfg.login_auth_scheme)
+        tag = "green" if login_msg.startswith("Login réussi") else "yellow"
+        console.print(f"[{tag}][{'OK' if tag == 'green' else 'WARN'}][/{tag}] {escape(login_msg)}")
+
     # ---- IA : dégradation gracieuse (jamais de crash, jamais de message d'erreur dans les rapports) ----
     use_llm, model = cfg.use_llm, None
     if use_llm:
@@ -278,15 +320,23 @@ async def execute_audit(cfg: AuditConfig) -> dict:
     engine_mode = f"Déterministe + IA ({model})" if use_llm else "Déterministe (signatures, canary, refus)"
 
     target = cfg.target
-    param_key = "prompt"
-    if cfg.discover:
+    param_key = cfg.param_key or "prompt"
+    if cfg.discover and not cfg.param_key:
+        # --param-key force l'URL ET le champ JSON : utile pour les interfaces HTML/JS (widgets de
+        # chat CTF) où la découverte automatique ne peut pas lire un endpoint rendu dynamiquement.
         web_info = await auto_discover_web_ai(target, http)
         param_key = web_info.get("param_key", "prompt")
         if web_info.get("cookies"):
-            http.cookies = web_info["cookies"]
+            http.cookies = {**(http.cookies or {}), **web_info["cookies"]}
         if web_info.get("is_web_discovered"):
             console.print(f"[bold green][AUTO-DISCOVERY][/bold green] Endpoint API découvert : [bold cyan]{escape(web_info['api_url'])}[/bold cyan] (clé JSON : '{escape(param_key)}')")
             target = web_info["api_url"]
+        else:
+            console.print("[yellow][WARN][/yellow] Aucun endpoint JSON détecté automatiquement (page rendue en JS/widget ?). "
+                          "Ouvrez l'onglet Réseau du navigateur, identifiez l'URL et le champ JSON réels, puis relancez avec "
+                          "--target <url-api> --no-discover --param-key <champ>.")
+    elif cfg.param_key:
+        console.print(f"[cyan][INFO][/cyan] Découverte désactivée : URL et clé JSON ('{escape(param_key)}') imposées manuellement.")
 
     console.print(f"[cyan][INFO][/cyan] Endpoint cible : [bold]{escape(target)}[/bold] (Format : {cfg.api_type.upper()} | Modèle : {escape(cfg.target_model)})")
     console.print(f"[cyan][INFO][/cyan] Moteur : [bold]{engine_mode}[/bold] | Modules : [bold]{len(items)}/10[/bold] | Essais par sonde : {cfg.repeat}\n")
@@ -511,6 +561,17 @@ def main(
     insecure: bool = typer.Option(False, "--insecure", help="Ne pas vérifier le certificat TLS de la cible", rich_help_panel="1. Cible & Protocole"),
     proxy: Optional[str] = typer.Option(None, "--proxy", help="Proxy HTTP(S), ex. http://127.0.0.1:8080 (Burp/ZAP)", rich_help_panel="1. Cible & Protocole"),
     discover: bool = typer.Option(True, "--discover/--no-discover", help="Découverte d'endpoint si la cible est une page HTML (même origine uniquement)", rich_help_panel="1. Cible & Protocole"),
+    param_key: Optional[str] = typer.Option(None, "--param-key", help="Force le champ JSON du prompt (ex. 'data', 'query') et désactive la découverte auto : utile pour les widgets HTML/JS (CTF) où l'endpoint réel ne peut être lu que depuis l'onglet Réseau du navigateur", rich_help_panel="1. Cible & Protocole"),
+    login_url: Optional[str] = typer.Option(None, "--login-url", help="URL de login à appeler AVANT le scan (API ou formulaire)", rich_help_panel="1. Cible & Protocole"),
+    login_user: Optional[str] = typer.Option(None, "--login-user", help="Identifiant de connexion", rich_help_panel="1. Cible & Protocole"),
+    login_pass: Optional[str] = typer.Option(None, "--login-pass", envvar="BMO_LOGIN_PASS", help="Mot de passe (préférez la variable BMO_LOGIN_PASS)", rich_help_panel="1. Cible & Protocole"),
+    login_field_user: str = typer.Option("username", "--login-field-user", help="Nom du champ JSON pour l'identifiant", rich_help_panel="1. Cible & Protocole"),
+    login_field_pass: str = typer.Option("password", "--login-field-pass", help="Nom du champ JSON pour le mot de passe", rich_help_panel="1. Cible & Protocole"),
+    login_token_path: Optional[str] = typer.Option(None, "--login-token-path", help="Chemin du jeton dans la réponse JSON de login (ex. 'access_token', 'data.token') ; sans cela, les cookies de session sont réutilisés", rich_help_panel="1. Cible & Protocole"),
+    cookie: Optional[str] = typer.Option(None, "--cookie", help="Cookies de session copiés depuis votre navigateur après connexion manuelle : 'nom1=val1; nom2=val2'", rich_help_panel="1. Cible & Protocole"),
+    cookie_file: Optional[str] = typer.Option(None, "--cookie-file", help="Fichier de cookies (format d'en-tête, ou export JSON d'une extension type Cookie-Editor)", rich_help_panel="1. Cible & Protocole"),
+    login_browser: bool = typer.Option(False, "--login-browser", help="Ouvre un vrai navigateur pour un login manuel (CSRF/OAuth/2FA), puis capture automatiquement les cookies de session. Nécessite : pip install \".[browser]\" && playwright install chromium", rich_help_panel="1. Cible & Protocole"),
+    login_browser_url: Optional[str] = typer.Option(None, "--login-browser-url", help="URL de la page de login à ouvrir dans le navigateur (défaut : la cible -t elle-même)", rich_help_panel="1. Cible & Protocole"),
     authorized: bool = typer.Option(False, "--i-have-authorization", help="Confirme que vous avez l'autorisation écrite d'auditer une cible distante", rich_help_panel="1. Cible & Protocole"),
     limit: int = typer.Option(10, "--limit", "-n", min=1, max=10, help="Nombre maximal de modules OWASP à exécuter (1 à 10)", rich_help_panel="2. Moteur d'Audit & IA"),
     only: Optional[str] = typer.Option(None, "--only", help="Modules à exécuter, ex. LLM01,LLM07", rich_help_panel="2. Moteur d'Audit & IA"),
@@ -584,10 +645,17 @@ def main(
     if judge_url:
         configure_judge(judge_url, judge_model, judge_key)
 
+    if login_url and not (login_user and login_pass):
+        console.print("[bold red][ERREUR][/bold red] --login-url nécessite --login-user et --login-pass (ou BMO_LOGIN_PASS).")
+        raise typer.Exit(2)
+    login_json = {login_field_user: login_user, login_field_pass: login_pass} if login_url else {}
+
     cfg = AuditConfig(
         target=target, api_type=api_type.lower(), target_model=target_model, api_key=api_key, extra_headers=extra_headers,
         limit=limit, only=only_set, use_llm=use_llm, model=model, repeat=repeat, max_probes=max_probes, max_tokens=max_tokens,
-        timeout=timeout, delay=delay, verify=not insecure, proxy=proxy, discover=discover, recon=recon)
+        timeout=timeout, delay=delay, verify=not insecure, proxy=proxy, discover=discover, recon=recon,
+        param_key=param_key, login_url=login_url, login_json=login_json, login_token_path=login_token_path,
+        cookie=cookie, cookie_file=cookie_file, login_browser=login_browser, login_browser_url=login_browser_url)
 
     out = asyncio.run(execute_audit(cfg))
     results, profile, recon_res, stats, final_target = out["results"], out["profile"], out["recon"], out["stats"], out["target"]

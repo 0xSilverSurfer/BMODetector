@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import pytest
 
@@ -137,3 +138,75 @@ def test_discovery_never_posts_to_third_party_hosts(monkeypatch):
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: real(transport=transport, **kw))
     asyncio.run(judge.auto_discover_web_ai("https://site.test/", judge.HttpConfig()))
     assert seen and all("tracker.evil.example" not in u for u in seen)
+
+
+def test_html_wrapped_reply_is_not_truncated_before_detection():
+    far_secret = "filler " * 400 + "SECRET_RAG_DOC leaked at the end"
+    html = f"<html><body>{far_secret}</body></html>"
+    out = judge.extract_response_text(html)
+    assert "SECRET_RAG_DOC" in out and len(out) > 2000     # l'ancien code coupait à 1500 caractères
+
+
+def test_login_extracts_bearer_token(monkeypatch):
+    import httpx
+
+    def handler(request: httpx.Request):
+        assert json.loads(request.content) == {"username": "admin", "password": "secret123"}
+        return httpx.Response(200, json={"access_token": "tok_abc"}, headers={"set-cookie": "session_id=sess_xyz; Path=/"})
+
+    transport = httpx.MockTransport(handler)
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: real(transport=transport, **kw))
+    new_http, msg = asyncio.run(judge.perform_login(
+        "https://t/login", {"username": "admin", "password": "secret123"}, judge.HttpConfig(), "access_token"))
+    assert new_http.headers["Authorization"] == "Bearer tok_abc"
+    assert new_http.cookies.get("session_id") == "sess_xyz"
+    assert msg.startswith("Login réussi")
+
+
+def test_login_failure_degrades_gracefully(monkeypatch):
+    import httpx
+
+    def handler(request: httpx.Request):
+        return httpx.Response(401, json={"detail": "bad creds"})
+
+    transport = httpx.MockTransport(handler)
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: real(transport=transport, **kw))
+    old_http = judge.HttpConfig()
+    new_http, msg = asyncio.run(judge.perform_login("https://t/login", {"u": "a", "p": "b"}, old_http, None))
+    assert new_http is old_http and "Échec du login" in msg
+
+
+def test_parse_cookie_string():
+    assert judge.parse_cookie_string("a=1; b=2; junk; c=3") == {"a": "1", "b": "2", "c": "3"}
+    assert judge.parse_cookie_string("") == {}
+
+
+def test_load_cookie_file_header_and_json_formats(tmp_path):
+    p1 = tmp_path / "c1.txt"
+    p1.write_text("session=abc; csrf=xyz")
+    assert judge.load_cookie_file(str(p1)) == {"session": "abc", "csrf": "xyz"}
+
+    p2 = tmp_path / "c2.json"
+    p2.write_text(json.dumps([{"name": "session", "value": "abc", "domain": "x"}, {"name": "csrf", "value": "xyz"}]))
+    assert judge.load_cookie_file(str(p2)) == {"session": "abc", "csrf": "xyz"}
+
+
+def test_browser_capture_degrades_gracefully_without_playwright():
+    cookies, msg = asyncio.run(judge.capture_cookies_via_browser("https://t/login"))
+    assert cookies == {} and ("playwright" in msg.lower() or "échec" in msg.lower())
+
+
+def test_login_merges_cookies_instead_of_overwriting(monkeypatch):
+    import httpx
+
+    def handler(request: httpx.Request):
+        return httpx.Response(200, json={"access_token": "tok2"}, headers={"set-cookie": "new_c=2; Path=/"})
+
+    transport = httpx.MockTransport(handler)
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: real(transport=transport, **kw))
+    existing = judge.HttpConfig(cookies={"old_c": "1"})
+    new_http, _ = asyncio.run(judge.perform_login("https://t/login", {}, existing, "access_token"))
+    assert new_http.cookies == {"old_c": "1", "new_c": "2"}   # fusionné, pas écrasé
